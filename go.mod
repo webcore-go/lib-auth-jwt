@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	github.com/gofiber/fiber/v2 v2.52.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
-	github.com/semanggilab/webcore-go v0.1.2
+	github.com/webcore-go/webcore v0.0.1
 )
 
 require (
