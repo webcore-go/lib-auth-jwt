@@ -7,24 +7,32 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/webcore-go/webcore/infra/config"
+	"github.com/webcore-go/webcore/infra/logger"
 	"github.com/webcore-go/webcore/port/auth"
 )
 
 type JWTSession struct {
-	Config  config.AuthConfig
-	Session auth.ISessionStore
+	Config config.AuthConfig
+	Store  auth.ISessionStore
 }
 
-func (s *JWTSession) SetSessionStore(session auth.ISessionStore) {
-	s.Session = session
+func (s *JWTSession) SetSessionStore(store auth.ISessionStore) {
+	s.Store = store
 }
 
 func (s *JWTSession) Login(ctx *fiber.Ctx, userInfo auth.IUserAuthInfo) (*auth.UserLoginInfo, error) {
 	var refresh *string
+	var loginInfo *auth.UserLoginInfo
 	rbac, ok := userInfo.(*auth.UserAuthInfoRBAC)
 	if ok {
 		if rbac.Username == nil {
 			return nil, fmt.Errorf("Username null")
+		}
+
+		logger.Debug("Cek User sudah punya session", "session", s.Store)
+		loginInfo, err := s.Store.GetByUsername(*rbac.Username)
+		if err == nil && loginInfo != nil {
+			return loginInfo, nil
 		}
 
 		token, err := s.createJWT(*rbac.Username, rbac.Groups, rbac.Roles, s.Config.Session.ExpiresIn)
@@ -32,7 +40,7 @@ func (s *JWTSession) Login(ctx *fiber.Ctx, userInfo auth.IUserAuthInfo) (*auth.U
 			return nil, err
 		}
 
-		if s.Session != nil {
+		if s.Store != nil {
 			rt, err := s.createJWT(*rbac.Username, rbac.Groups, rbac.Roles, s.Config.Session.RefreshIn)
 			if err != nil {
 				return nil, err
@@ -41,7 +49,7 @@ func (s *JWTSession) Login(ctx *fiber.Ctx, userInfo auth.IUserAuthInfo) (*auth.U
 			refresh = &rt
 		}
 
-		loginInfo := &auth.UserLoginInfo{
+		loginInfo = &auth.UserLoginInfo{
 			Username:     *rbac.Username,
 			AccessToken:  &token,
 			RefreshToken: refresh,
@@ -51,8 +59,8 @@ func (s *JWTSession) Login(ctx *fiber.Ctx, userInfo auth.IUserAuthInfo) (*auth.U
 			Permissions:  rbac.Roles,
 		}
 
-		if s.Session != nil {
-			err = s.Session.Save(loginInfo)
+		if s.Store != nil {
+			err = s.Store.Save(loginInfo)
 			if err != nil {
 				return nil, err
 			}
@@ -66,12 +74,17 @@ func (s *JWTSession) Login(ctx *fiber.Ctx, userInfo auth.IUserAuthInfo) (*auth.U
 				return nil, fmt.Errorf("Username null")
 			}
 
+			// loginInfo, err := s.Store.GetByUsername(*abac.Username)
+			// if err == nil && loginInfo != nil {
+			// 	return loginInfo, nil
+			// }
+
 			token, err := s.createJWT(*abac.Username, abac.Groups, []string{}, s.Config.Session.ExpiresIn)
 			if err != nil {
 				return nil, err
 			}
 
-			if s.Session != nil {
+			if s.Store != nil {
 				rt, err := s.createJWT(*abac.Username, abac.Groups, []string{}, s.Config.Session.RefreshIn)
 				if err != nil {
 					return nil, err
@@ -80,7 +93,7 @@ func (s *JWTSession) Login(ctx *fiber.Ctx, userInfo auth.IUserAuthInfo) (*auth.U
 				refresh = &rt
 			}
 
-			loginInfo := &auth.UserLoginInfo{
+			loginInfo = &auth.UserLoginInfo{
 				Username:     *abac.Username,
 				AccessToken:  &token,
 				RefreshToken: refresh,
@@ -90,8 +103,8 @@ func (s *JWTSession) Login(ctx *fiber.Ctx, userInfo auth.IUserAuthInfo) (*auth.U
 				Permissions:  []string{},
 			}
 
-			if s.Session != nil {
-				err = s.Session.Save(loginInfo)
+			if s.Store != nil {
+				err = s.Store.Save(loginInfo)
 				if err != nil {
 					return nil, err
 				}
@@ -105,8 +118,8 @@ func (s *JWTSession) Login(ctx *fiber.Ctx, userInfo auth.IUserAuthInfo) (*auth.U
 }
 
 func (s *JWTSession) Refresh(ctx *fiber.Ctx, refreshToken string) (*auth.UserLoginInfo, error) {
-	if s.Session != nil {
-		loginInfo, err := s.Session.GetByRefreshToken(refreshToken)
+	if s.Store != nil {
+		loginInfo, err := s.Store.GetByRefreshToken(refreshToken)
 		if err != nil {
 			return nil, err
 		}
@@ -125,7 +138,7 @@ func (s *JWTSession) Refresh(ctx *fiber.Ctx, refreshToken string) (*auth.UserLog
 		loginInfo.AccessToken = &token
 		loginInfo.RefreshToken = &refresh
 
-		err = s.Session.Refresh(refreshToken, loginInfo)
+		err = s.Store.Refresh(refreshToken, loginInfo)
 		if err != nil {
 			return nil, err
 		}
@@ -137,13 +150,13 @@ func (s *JWTSession) Refresh(ctx *fiber.Ctx, refreshToken string) (*auth.UserLog
 }
 
 func (s *JWTSession) Logout(ctx *fiber.Ctx, accessToken string) error {
-	if s.Session != nil {
-		loginInfo, err := s.Session.GetByAccessToken(accessToken)
+	if s.Store != nil {
+		loginInfo, err := s.Store.GetByAccessToken(accessToken)
 		if err != nil {
 			return err
 		}
 
-		return s.Session.Delete(loginInfo)
+		return s.Store.Delete(loginInfo)
 	}
 
 	return fmt.Errorf("Logout not supported")

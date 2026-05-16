@@ -6,6 +6,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/webcore-go/webcore/infra/logger"
 	"github.com/webcore-go/webcore/port/auth"
 )
 
@@ -46,6 +47,7 @@ func (a *JWTAuthValidator) ValidateKey(ctx *fiber.Ctx) error {
 		return fmt.Errorf("Required prefix in Authorization header is missing")
 	}
 
+	logger.Debug("JWT", "TOKEN", tokenString)
 	a.Key = tokenString
 	return nil
 }
@@ -72,22 +74,39 @@ func (a *JWTAuthValidator) VerifyUser(ctx *fiber.Ctx, userKey string, userInfo a
 		return true, fmt.Errorf("Invalid or expired token")
 	}
 
+	logger.DebugJson("JWT CLAIMS", token)
 	// Extract claims
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		// Store user info in context
-		ctx.Locals("user_id", claims["user_id"])
-		ctx.Locals("user_role", claims["role"])
-		ctx.Locals("user_permissions", claims["permissions"])
-		ctx.Locals("auth_type", "jwt")
-
-		rbac, ok1 := userInfo.(*auth.UserAuthInfoRBAC)
-		if ok1 {
-			return userKey == rbac.UserId, nil
+		usr, ok := claims["user_id"]
+		if !ok {
+			return true, fmt.Errorf("JWT Claim data invalid")
 		}
 
-		abac, ok2 := userInfo.(*auth.UserAuthInfoABAC)
-		if ok2 {
-			return userKey == abac.UserId, nil
+		username := usr.(string)
+		rbac, ok1 := userInfo.(*auth.UserAuthInfoRBAC)
+		if ok1 {
+			if rbac.Username != nil && username == *rbac.Username {
+				// Store user info in context
+				ctx.Locals("user_id", username)
+				ctx.Locals("user_role", claims["role"])
+				ctx.Locals("user_permissions", claims["permissions"])
+				ctx.Locals("auth_type", "jwt")
+
+				return true, nil
+			}
+		} else {
+			abac, ok2 := userInfo.(*auth.UserAuthInfoABAC)
+			if ok2 {
+				if abac.Username != nil && username == *abac.Username {
+					// Store user info in context
+					ctx.Locals("user_id", username)
+					ctx.Locals("user_role", claims["role"])
+					ctx.Locals("user_permissions", claims["permissions"])
+					ctx.Locals("auth_type", "jwt")
+
+					return true, nil
+				}
+			}
 		}
 
 		return false, nil

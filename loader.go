@@ -37,5 +37,7 @@ func (a *JWTAuthLoader) Init(args ...any) (port.Library, error) {
 		return nil, err
 	}
 
+	session.SetSessionStore(authn.Authenticator.SessionStore.GetSessionStore())
+
 	return authn, nil
 }
